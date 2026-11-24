@@ -1,362 +1,121 @@
-# 🚀 SolidaryTech — Hackathon Fase 5
+# solidarytech-microservices
 
-Bem-vindo ao repositório oficial da **SolidaryTech**.
+Os três microsserviços da **SolidaryTech**, a plataforma que conecta ONGs, doadores e voluntários, no Hackathon da Fase 5 da POSTECH FIAP (DevOps/SRE).
 
-Este monorepo contém os microsserviços que compõem a plataforma da ONG e servirá como base para os desafios do Hackathon Fase 5.
+O código de partida é o fornecido pelo curso em [`dougls/hackathon-DCLT`](https://github.com/dougls/hackathon-DCLT). A partir dele, cada serviço vai ganhar Dockerfile, testes, instrumentação e esteira própria; hoje o repositório ainda tem só o código original. A visão geral do projeto, a equipe e o mapa dos repositórios estão no [perfil da organização](https://github.com/fiap-hackathon-dclt).
 
-O objetivo principal deste projeto é aplicar conceitos modernos de:
+## Os serviços
 
-- SRE (Site Reliability Engineering)
-- FinOps
-- Multicloud
-- ITSM
-- Observabilidade
-- Resiliência
-- Kubernetes & GitOps
-- Infraestrutura como Código (IaC)
+| Serviço | Stack | Estado | Porta | Responsabilidade |
+|---|---|---|---|---|
+| [`ngo-service`](ngo-service/) | Python · Flask | PostgreSQL | `8081` | Cadastro e gestão das ONGs parceiras |
+| [`donation-service`](donation-service/) | Go | PostgreSQL · SQS | `8082` | Processamento das doações e publicação de eventos na fila |
+| [`volunteer-service`](volunteer-service/) | Python · Flask | DynamoDB | `8083` | Cadastro de voluntários por ONG |
 
----
+O **`donation-service` é o caminho crítico** da plataforma: é onde estão os SLOs, o error budget e o RPO do plano de continuidade, e é ele que recebe prioridade em toda decisão de arquitetura.
 
-# 🏗️ Arquitetura dos Microsserviços
+## API
 
-O ecossistema é composto por **3 microsserviços independentes**, desenvolvidos com tecnologias diferentes para simular um ambiente corporativo distribuído.
+| Serviço | Método e rota | Faz |
+|---|---|---|
+| todos | `GET /health` | Responde `{"status":"ok"}` com o nome do serviço |
+| `ngo-service` | `POST /ngos` | Cadastra uma ONG: `name`, `email`, `cause`, `city`. E-mail repetido responde `409` |
+| `ngo-service` | `GET /ngos` | Lista as ONGs |
+| `donation-service` | `POST /donations` | Registra uma doação: `ngo_id`, `amount`, `donor_name`. Publica o evento na fila SQS, se configurada |
+| `donation-service` | `GET /donations` | Lista as doações |
+| `volunteer-service` | `POST /volunteers` | Cadastra um voluntário: `name`, `email`, `ngo_id` |
+| `volunteer-service` | `GET /volunteers/<ngo_id>` | Lista os voluntários de uma ONG |
 
----
+## Como isto chega à produção
 
-## 1️⃣ NGO Service — Cadastro de ONGs
+Ninguém vai fazer deploy daqui. O caminho previsto é sempre o mesmo:
 
-| Item | Valor |
-|---|---|
-| Linguagem | Python 3.9+ |
-| Framework | Flask |
-| Banco de Dados | PostgreSQL |
-| Porta Local | `8081` |
-
-### 📌 Descrição
-Responsável pelo gerenciamento e cadastro das ONGs parceiras da plataforma.
-
----
-
-## 2️⃣ Donation Service — Processamento de Doações
-
-| Item | Valor |
-|---|---|
-| Linguagem | Go 1.21+ |
-| Banco de Dados | PostgreSQL |
-| Mensageria | AWS SQS |
-| Porta Local | `8082` |
-
-### 📌 Descrição
-Este é o **Hot Path** da aplicação.
-
-Responsável pelo processamento das doações e publicação de eventos assíncronos em filas para processamento posterior.
-
----
-
-## 3️⃣ Volunteer Service — Gestão de Voluntários
-
-| Item | Valor |
-|---|---|
-| Linguagem | Python 3.9+ |
-| Framework | Flask |
-| Banco de Dados | AWS DynamoDB |
-| Porta Local | `8083` |
-
-### 📌 Descrição
-Gerencia o cadastro e inscrição de voluntários interessados em apoiar as ONGs parceiras.
-
-Utiliza armazenamento NoSQL nativo da AWS com foco em escalabilidade.
-
----
-
-# 📁 Estrutura do Repositório
-
-```text
-.
-├── ngo-service/          # Código Python e scripts SQL do serviço de ONGs
-├── donation-service/     # Código Go e scripts SQL do serviço de doações
-└── volunteer-service/    # Código Python do serviço de voluntários
+```
+merge na main deste repositório
+  → CI do serviço alterado: testes, lint, SAST, SCA, build e scan da imagem
+  → imagem publicada no ECR, com o SHA do commit como tag
+  → CD grava a nova tag no solidarytech-gitops
+  → Argo CD sincroniza o cluster
 ```
 
----
-
-# 🚀 Executando Localmente
-
-Antes de realizar deploy em Kubernetes e automatizações CI/CD, recomenda-se validar todo o ambiente localmente.
+Cada serviço vai ter esteira própria, disparada só quando o diretório dele muda. Os workflows vêm do [`reusable-workflows`](https://github.com/fiap-hackathon-dclt/reusable-workflows).
 
 ---
 
-# ✅ Pré-requisitos
+## Executando localmente
 
-Certifique-se de possuir os seguintes itens instalados:
+### Pré-requisitos
 
 - Python 3.9+
 - Go 1.21+
-- Docker (opcional, mas recomendado)
 - PostgreSQL
-- AWS CLI configurado
-- Credenciais AWS válidas
+- AWS CLI configurado, com credenciais válidas, para o DynamoDB e o SQS
 
----
+### 1. Dependências
 
-# 🛠️ Passo 1 — Preparação da Infraestrutura
+**PostgreSQL.** Crie dois bancos independentes e rode o script de cada um:
 
-## PostgreSQL
-
-Crie dois bancos de dados independentes:
-
-### Banco `ngo_db`
-
-Execute:
-
-```sql
-ngo-service/db/init.sql
-```
-
-### Banco `donation_db`
-
-Execute:
-
-```sql
-donation-service/db/init.sql
-```
-
----
-
-## AWS DynamoDB
-
-Crie a tabela:
-
-| Configuração | Valor |
+| Banco | Script |
 |---|---|
-| Nome da Tabela | `SolidaryTechVolunteers` |
-| Partition Key | `volunteer_id` |
-| Tipo | `String` |
+| `ngo_db` | [`ngo-service/db/init.sql`](ngo-service/db/init.sql) |
+| `donation_db` | [`donation-service/db/init.sql`](donation-service/db/init.sql) |
 
----
+**DynamoDB.** Uma tabela `SolidaryTechVolunteers`, com partition key `volunteer_id` do tipo `String`.
 
-## AWS SQS
+**SQS.** Uma fila Standard. Guarde a URL para as variáveis de ambiente. A fila é opcional: sem ela, o `donation-service` sobe e só não publica eventos.
 
-Crie uma fila do tipo **Standard Queue**.
+### 2. Variáveis de ambiente
 
-Exemplo:
+Crie um `.env` dentro de cada serviço.
 
-```text
-https://sqs.us-east-1.amazonaws.com/1234567890/solidary-donations
-```
-
-Guarde a URL da fila para utilizar nas variáveis de ambiente.
-
----
-
-# ⚙️ Passo 2 — Variáveis de Ambiente
-
-Crie um arquivo `.env` dentro de cada microsserviço.
-
----
-
-## 📄 ngo-service/.env
+`ngo-service/.env`
 
 ```env
 PORT=8081
 DATABASE_URL="postgres://SEU_USUARIO:SUA_SENHA@localhost:5432/ngo_db"
 ```
 
----
-
-## 📄 donation-service/.env
+`donation-service/.env`
 
 ```env
 PORT=8082
 DATABASE_URL="postgres://SEU_USUARIO:SUA_SENHA@localhost:5432/donation_db"
-
 AWS_REGION="us-east-1"
 AWS_SQS_URL="SUA_URL_DA_FILA_SQS"
 ```
 
----
-
-## 📄 volunteer-service/.env
+`volunteer-service/.env`
 
 ```env
 PORT=8083
-
 AWS_REGION="us-east-1"
 AWS_DYNAMODB_TABLE="SolidaryTechVolunteers"
 ```
 
----
+### 3. Subindo os serviços
 
-# ▶️ Passo 3 — Inicializando os Serviços
-
-Abra **3 terminais separados**.
-
----
-
-## 🟣 Terminal 1 — NGO Service
+Um terminal para cada serviço:
 
 ```bash
 cd ngo-service
-
 pip install -r requirements.txt
-
 gunicorn --bind 0.0.0.0:8081 app:app
 ```
 
----
-
-## 🟠 Terminal 2 — Donation Service
-
 ```bash
 cd donation-service
-
 go mod tidy
-
 go run .
 ```
 
----
-
-## 🔵 Terminal 3 — Volunteer Service
-
 ```bash
 cd volunteer-service
-
 pip install -r requirements.txt
-
 gunicorn --bind 0.0.0.0:8083 app:app
 ```
 
----
-
-# 🌐 Portas Locais
-
 | Serviço | URL |
 |---|---|
-| NGO Service | http://localhost:8081 |
-| Donation Service | http://localhost:8082 |
-| Volunteer Service | http://localhost:8083 |
-
----
-
-# 🎯 Objetivos do Hackathon
-
-O código fornecido representa apenas a base do software.
-
-O verdadeiro desafio está na engenharia, operação e resiliência da plataforma.
-
----
-
-# 📦 Conteinerização
-
-- Criar Dockerfiles
-- Otimizar imagens
-- Implementar estratégias multi-stage build
-- Reduzir vulnerabilidades
-
----
-
-# ☁️ Infraestrutura como Código (Terraform)
-
-Provisionar:
-
-- Amazon EKS
-- Amazon RDS
-- Amazon ElastiCache
-- Amazon SQS
-- Amazon DynamoDB
-- VPC, Subnets e Security Groups
-
-## 💰 FinOps
-
-Implementar:
-
-- Tags estruturadas
-- Controle de custos
-- Rightsizing
-- Budgets e alertas financeiros
-
----
-
-# 🔄 CI/CD & GitOps
-
-Automatizar:
-
-- Testes
-- Security Scans
-- Build de imagens
-- Deploy em Kubernetes
-
-Ferramentas sugeridas:
-
-- GitHub Actions
-- ArgoCD
-- FluxCD
-
----
-
-# 📊 Observabilidade
-
-Instrumentar os serviços utilizando:
-
-- OpenTelemetry
-- Distributed Tracing
-- Métricas
-- Logs estruturados
-
-Ferramentas sugeridas:
-
-- Grafana
-- Prometheus
-- Datadog
-- New Relic
-
----
-
-# 🛡️ SRE & Resiliência
-
-Definir:
-
-- SLIs
-- SLOs
-- Error Budgets
-- Estratégias de Disaster Recovery
-- Alertas inteligentes
-- Health Checks
-- Auto Healing
-
-## 🔥 Foco Principal
-
-O `donation-service` deve ser tratado como componente crítico da plataforma.
-
----
-
-# 📚 Tecnologias Envolvidas
-
-- Python
-- Flask
-- Go
-- PostgreSQL
-- DynamoDB
-- AWS SQS
-- Docker
-- Kubernetes
-- Terraform
-- GitOps
-- OpenTelemetry
-
----
-
-# 🤝 Contribuição
-
-Este projeto foi criado exclusivamente para fins educacionais e execução do Hackathon Fase 5.
-
-Sinta-se livre para evoluir a arquitetura, melhorar a observabilidade e implementar boas práticas de engenharia de plataforma.
-
----
-
-# 🏁 Boa sorte!
-
-Bom Hackathon 🚀
-
-Faça a diferença com a **SolidaryTech** 💙
+| `ngo-service` | http://localhost:8081 |
+| `donation-service` | http://localhost:8082 |
+| `volunteer-service` | http://localhost:8083 |
