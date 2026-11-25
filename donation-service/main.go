@@ -1,19 +1,18 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
-	"fmt"
 	"log"
 	"net/http"
 	"os"
-	"strconv"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/sqs"
-	_ "github.com/jackc/pgx/v4/stdlib"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/sqs"
+	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/joho/godotenv"
 )
 
@@ -28,7 +27,7 @@ type Donation struct {
 
 type App struct {
 	DB          *sql.DB
-	SqsSvc      *sqs.SQS
+	SqsClient   *sqs.Client
 	SqsQueueURL string
 }
 
@@ -51,16 +50,19 @@ func main() {
 	}
 	log.Println("Conectado ao PostgreSQL (donation-service).")
 
-	var sqsSvc *sqs.SQS
+	var sqsClient *sqs.Client
 	queueURL := os.Getenv("AWS_SQS_URL")
 	region := os.Getenv("AWS_REGION")
 	if queueURL != "" && region != "" {
-		sess, _ := session.NewSession(&aws.Config{Region: aws.String(region)})
-		sqsSvc = sqs.New(sess)
+		cfg, err := config.LoadDefaultConfig(context.Background(), config.WithRegion(region))
+		if err != nil {
+			log.Fatalf("Erro ao carregar configuração AWS: %v", err)
+		}
+		sqsClient = sqs.NewFromConfig(cfg)
 		log.Println("Integração com AWS SQS ativada.")
 	}
 
-	app := &App{DB: db, SqsSvc: sqsSvc, SqsQueueURL: queueURL}
+	app := &App{DB: db, SqsClient: sqsClient, SqsQueueURL: queueURL}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", app.HealthHandler)
@@ -98,7 +100,7 @@ func (a *App) DonationHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		if a.SqsSvc != nil {
+		if a.SqsClient != nil {
 			go a.sendNotificationEvent(d)
 		}
 
@@ -131,7 +133,7 @@ func (a *App) DonationHandler(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) sendNotificationEvent(d Donation) {
 	body, _ := json.Marshal(d)
-	_, err := a.SqsSvc.SendMessage(&sqs.SendMessageInput{
+	_, err := a.SqsClient.SendMessage(context.Background(), &sqs.SendMessageInput{
 		MessageBody: aws.String(string(body)),
 		QueueUrl:    aws.String(a.SqsQueueURL),
 	})
