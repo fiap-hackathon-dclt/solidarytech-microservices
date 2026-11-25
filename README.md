@@ -2,7 +2,7 @@
 
 Os três microsserviços da **SolidaryTech**, a plataforma que conecta ONGs, doadores e voluntários, no Hackathon da Fase 5 da POSTECH FIAP (DevOps/SRE).
 
-O código de partida é o fornecido pelo curso em [`dougls/hackathon-DCLT`](https://github.com/dougls/hackathon-DCLT). A partir dele, cada serviço vai ganhar Dockerfile, testes, instrumentação e esteira própria; hoje o repositório ainda tem só o código original. A visão geral do projeto, a equipe e o mapa dos repositórios estão no [perfil da organização](https://github.com/fiap-hackathon-dclt).
+O código de partida é o fornecido pelo curso em [`dougls/hackathon-DCLT`](https://github.com/dougls/hackathon-DCLT). A partir dele, cada serviço ganhou Dockerfile e roda localmente em docker-compose; testes, instrumentação e esteira própria vêm a seguir. A visão geral do projeto, a equipe e o mapa dos repositórios estão no [perfil da organização](https://github.com/fiap-hackathon-dclt).
 
 ## Os serviços
 
@@ -44,74 +44,10 @@ Cada serviço vai ter esteira própria, disparada só quando o diretório dele m
 
 ## Executando localmente
 
-### Pré-requisitos
-
-- Python 3.9+
-- Go 1.21+
-- PostgreSQL
-- AWS CLI configurado, com credenciais válidas, para o DynamoDB e o SQS
-
-### 1. Dependências
-
-**PostgreSQL.** Crie dois bancos independentes e rode o script de cada um:
-
-| Banco | Script |
-|---|---|
-| `ngo_db` | [`ngo-service/db/init.sql`](ngo-service/db/init.sql) |
-| `donation_db` | [`donation-service/db/init.sql`](donation-service/db/init.sql) |
-
-**DynamoDB.** Uma tabela `SolidaryTechVolunteers`, com partition key `volunteer_id` do tipo `String`.
-
-**SQS.** Uma fila Standard. Guarde a URL para as variáveis de ambiente. A fila é opcional: sem ela, o `donation-service` sobe e só não publica eventos.
-
-### 2. Variáveis de ambiente
-
-Crie um `.env` dentro de cada serviço.
-
-`ngo-service/.env`
-
-```env
-PORT=8081
-DATABASE_URL="postgres://SEU_USUARIO:SUA_SENHA@localhost:5432/ngo_db"
-```
-
-`donation-service/.env`
-
-```env
-PORT=8082
-DATABASE_URL="postgres://SEU_USUARIO:SUA_SENHA@localhost:5432/donation_db"
-AWS_REGION="us-east-1"
-AWS_SQS_URL="SUA_URL_DA_FILA_SQS"
-```
-
-`volunteer-service/.env`
-
-```env
-PORT=8083
-AWS_REGION="us-east-1"
-AWS_DYNAMODB_TABLE="SolidaryTechVolunteers"
-```
-
-### 3. Subindo os serviços
-
-Um terminal para cada serviço:
+Só é preciso Docker. Não há conta na AWS nem configuração manual:
 
 ```bash
-cd ngo-service
-pip install -r requirements.txt
-gunicorn --bind 0.0.0.0:8081 app:app
-```
-
-```bash
-cd donation-service
-go mod tidy
-go run .
-```
-
-```bash
-cd volunteer-service
-pip install -r requirements.txt
-gunicorn --bind 0.0.0.0:8083 app:app
+docker compose up --build
 ```
 
 | Serviço | URL |
@@ -119,3 +55,40 @@ gunicorn --bind 0.0.0.0:8083 app:app
 | `ngo-service` | http://localhost:8081 |
 | `donation-service` | http://localhost:8082 |
 | `volunteer-service` | http://localhost:8083 |
+
+O compose sobe, junto dos três serviços:
+
+| Peça | Papel |
+|---|---|
+| PostgreSQL | Os bancos `ngo_db` e `donation_db`, criados pelos `db/init.sql` dos serviços |
+| DynamoDB Local | Emulador do DynamoDB, em memória, com a tabela `SolidaryTechVolunteers` |
+| ElasticMQ | Emulador do SQS, com a fila `solidary-donations` |
+
+Os serviços falam com os emuladores pelas variáveis `AWS_ENDPOINT_URL_SQS` e `AWS_ENDPOINT_URL_DYNAMODB`, que os SDKs da AWS leem sozinhos. Em produção elas não existem, e o mesmo código fala com a AWS. O motivo da escolha está na [ADR 0008](https://github.com/fiap-hackathon-dclt/.github/blob/main/docs/decisoes/0008-ambiente-local-com-emuladores.md).
+
+O ambiente é efêmero: `docker compose down -v` apaga tudo, e a próxima subida começa limpa.
+
+### Inspecionando a fila e a tabela
+
+A AWS CLI roda num contêiner, na rede do compose:
+
+```bash
+docker run --rm --network solidarytech_default \
+  -e AWS_REGION=us-east-1 -e AWS_ACCESS_KEY_ID=local -e AWS_SECRET_ACCESS_KEY=local \
+  amazon/aws-cli:2.42.3 sqs receive-message \
+  --endpoint-url http://elasticmq:9324 \
+  --queue-url http://elasticmq:9324/000000000000/solidary-donations
+```
+
+Para a tabela: `dynamodb scan --table-name SolidaryTechVolunteers --endpoint-url http://dynamodb:8000`.
+
+### Variáveis de ambiente
+
+| Serviço | Variável | Obrigatória |
+|---|---|---|
+| `ngo-service` | `DATABASE_URL` | sim |
+| `donation-service` | `PORT` | não; padrão `8082` |
+| `donation-service` | `DATABASE_URL` | sim |
+| `donation-service` | `AWS_REGION`, `AWS_SQS_URL` | não; sem as duas, o serviço não publica eventos |
+| `volunteer-service` | `AWS_DYNAMODB_TABLE` | sim |
+| `volunteer-service` | `AWS_REGION` | não; padrão `us-east-1` |
