@@ -22,7 +22,7 @@ concurrency:
 
 jobs:
   ci:
-    uses: fiap-hackathon-dclt/reusable-workflows/.github/workflows/python-ci.yml@feat/solidarytech-v1
+    uses: fiap-hackathon-dclt/reusable-workflows/.github/workflows/python-ci.yml@v1.0.0
     with:
       working-directory: ngo-service
       ecr-repository: solidarytech/ngo-service

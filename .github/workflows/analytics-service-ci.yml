@@ -22,7 +22,7 @@ concurrency:
 
 jobs:
   ci:
-    uses: fiap-hackathon-dclt/reusable-workflows/.github/workflows/go-ci.yml@feat/solidarytech-v1
+    uses: fiap-hackathon-dclt/reusable-workflows/.github/workflows/go-ci.yml@v1.0.0
     with:
       working-directory: analytics-service
       ecr-repository: solidarytech/analytics-service
