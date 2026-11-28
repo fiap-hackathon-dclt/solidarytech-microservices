@@ -93,9 +93,9 @@ func (a *App) DonationHandler(w http.ResponseWriter, r *http.Request) {
 
 		d.Status = "APPROVED" // Simulação de gateway de pagamento
 		err := a.DB.QueryRow(
-			"INSERT INTO donations (ngo_id, amount, donor_name, status) VALUES ($1, $2, $3, $4) RETURNING id, created_at",
+			"INSERT INTO donations (ngo_id, amount, donor_name, status) VALUES ($1, $2, $3, $4) RETURNING id, amount, created_at",
 			d.NgoID, d.Amount, d.DonorName, d.Status,
-		).Scan(&d.ID, &d.CreatedAt)
+		).Scan(&d.ID, &d.Amount, &d.CreatedAt)
 
 		if err != nil {
 			log.Printf("Erro ao salvar doação: %v", err)
