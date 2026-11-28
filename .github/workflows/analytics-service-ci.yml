@@ -1,0 +1,31 @@
+name: analytics-service CI
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "analytics-service/**"
+      - ".github/workflows/analytics-service-ci.yml"
+  push:
+    branches: [main]
+    paths:
+      - "analytics-service/**"
+      - ".github/workflows/analytics-service-ci.yml"
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    uses: fiap-hackathon-dclt/reusable-workflows/.github/workflows/go-ci.yml@feat/solidarytech-v1
+    with:
+      working-directory: analytics-service
+      ecr-repository: solidarytech/analytics-service
+      publish: false
+    secrets:
+      AWS_ROLE_ARN: ${{ secrets.AWS_OIDC_ROLE_ARN }}

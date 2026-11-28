@@ -24,7 +24,7 @@ func (c *HTTPNGOClient) Cause(ctx context.Context, ngoID int) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	switch resp.StatusCode {
 	case http.StatusOK:

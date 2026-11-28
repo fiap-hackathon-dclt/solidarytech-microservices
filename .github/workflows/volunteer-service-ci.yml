@@ -1,0 +1,31 @@
+name: volunteer-service CI
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "volunteer-service/**"
+      - ".github/workflows/volunteer-service-ci.yml"
+  push:
+    branches: [main]
+    paths:
+      - "volunteer-service/**"
+      - ".github/workflows/volunteer-service-ci.yml"
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    uses: fiap-hackathon-dclt/reusable-workflows/.github/workflows/python-ci.yml@feat/solidarytech-v1
+    with:
+      working-directory: volunteer-service
+      ecr-repository: solidarytech/volunteer-service
+      publish: false
+    secrets:
+      AWS_ROLE_ARN: ${{ secrets.AWS_OIDC_ROLE_ARN }}
