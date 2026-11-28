@@ -78,7 +78,9 @@ func main() {
 func (a *App) HealthHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`{"status":"ok","service":"donation-service"}`))
+	if _, err := w.Write([]byte(`{"status":"ok","service":"donation-service"}`)); err != nil {
+		log.Printf("Erro ao escrever a resposta: %v", err)
+	}
 }
 
 func (a *App) DonationHandler(w http.ResponseWriter, r *http.Request) {
@@ -108,7 +110,9 @@ func (a *App) DonationHandler(w http.ResponseWriter, r *http.Request) {
 		}
 
 		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(d)
+		if err := json.NewEncoder(w).Encode(d); err != nil {
+			log.Printf("Erro ao escrever a resposta: %v", err)
+		}
 		return
 	}
 
@@ -118,16 +122,31 @@ func (a *App) DonationHandler(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, `{"error":"Erro interno"}`, http.StatusInternalServerError)
 			return
 		}
-		defer rows.Close()
+		defer func() {
+			if err := rows.Close(); err != nil {
+				log.Printf("Erro ao fechar a consulta de doações: %v", err)
+			}
+		}()
 
 		donations := []Donation{}
 		for rows.Next() {
 			var d Donation
-			rows.Scan(&d.ID, &d.NgoID, &d.Amount, &d.DonorName, &d.Status, &d.CreatedAt)
+			if err := rows.Scan(&d.ID, &d.NgoID, &d.Amount, &d.DonorName, &d.Status, &d.CreatedAt); err != nil {
+				log.Printf("Erro ao ler doação: %v", err)
+				http.Error(w, `{"error":"Erro interno"}`, http.StatusInternalServerError)
+				return
+			}
 			donations = append(donations, d)
 		}
+		if err := rows.Err(); err != nil {
+			log.Printf("Erro ao percorrer as doações: %v", err)
+			http.Error(w, `{"error":"Erro interno"}`, http.StatusInternalServerError)
+			return
+		}
 
-		json.NewEncoder(w).Encode(donations)
+		if err := json.NewEncoder(w).Encode(donations); err != nil {
+			log.Printf("Erro ao escrever a resposta: %v", err)
+		}
 		return
 	}
 
